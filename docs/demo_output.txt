@@ -1,0 +1,85 @@
+================================================================
+ 장면 1. 커넥터 등록 → 위험 등급 산정(판별 불가 시 고위험)
+================================================================
+  [Day   0] notes 등록 (system) · risk=mid, reason=권한 범위 분류 적용, scopes=['notes.read', 'notes.write'], threshold_days=90
+  [Day   0] crm   등록 (system) · risk=high, reason=판별 불가 권한 'crm.all' → 고위험(안전한 방향), scopes=['crm.all'], threshold_days=240
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  → 호출 crm__list_contacts [scheduled] ✓ {"items": [{"id": 1, "name": "고객사 A 담당자"}]}
+
+================================================================
+ 장면 2. 임계값 30일 전 사전 고지 → 임계값 도달 시 일시정지, 구성 정보 보존
+================================================================
+  ⏱ 가상 시계 → Day 60
+  [Day  60] notes 사전 고지 발송 (system) · reason=inactive
+  [Day  60] ✉ email+push: 메모 서비스: 60일간 사용되지 않아 30일 뒤 일시정지됩니다.
+  ⏱ 가상 시계 → Day 90
+  [Day  90] notes 일시정지(구성 정보 보존) (system) · reason=inactive, idle_days=90, days_since_reconfirm=90, config_preserved=True
+  · notes 상태=paused, 구성 정보 보존=True
+
+================================================================
+ 장면 3. 정지된 커넥터 요청 → 재확인 카드 → [계속 사용] → 원래 요청 재실행
+================================================================
+  ⏱ 가상 시계 → Day 100
+  → 호출 notes__list_notes [user] ✗ '메모 서비스' 커넥터가 장기간 사용되지 않아 일시정지되었습니다. 이용자 화면에 재확인 카드를 표시했습니다. 이용자가 [계속 사용]을 선택하면 요청을 다시 실행하
+  [Day 100] notes 이용자 화면에 재확인 카드 표시 (system) · tool=list_notes
+  [Day 100] ✉ inline-card: [재확인 카드] 메모 서비스 · ‘메모 목록을 조회한다’ 요청에 이 커넥터가 필요합니다 · [계속 사용] [연결 해제]
+  🧑 이용자가 재확인 화면에서 [계속 사용]을 누름
+  [Day 100] notes 이용자 본인 재확인 → 활성 복귀 (user) · 계속 사용
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  · 같은 재확인 값 재사용 → HTTP 403
+
+================================================================
+ 장면 4. 예약 작업의 호출은 건너뜀 + 알림 1회, 에이전트 자율 호출은 차단만
+================================================================
+  crm은 120일 주기 예약 작업으로 계속 쓰이지만, 마지막 확인 후 12개월이 지나면 재확인 대상
+  ⏱ 가상 시계 → Day 120
+  → 호출 crm__list_contacts [scheduled] ✓ {"items": [{"id": 1, "name": "고객사 A 담당자"}]}
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  ⏱ 가상 시계 → Day 180
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  ⏱ 가상 시계 → Day 240
+  → 호출 crm__list_contacts [scheduled] ✓ {"items": [{"id": 1, "name": "고객사 A 담당자"}]}
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  ⏱ 가상 시계 → Day 300
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  ⏱ 가상 시계 → Day 360
+  → 호출 crm__list_contacts [scheduled] ✓ {"items": [{"id": 1, "name": "고객사 A 담당자"}]}
+  → 호출 notes__list_notes [user] ✓ {"items": [{"id": 1, "title": "주간 회의록"}, {"id": 2, "title": "공모전 일정"}]}
+  [Day 335] crm   사전 고지 발송 (system) · reason=absolute_cap
+  [Day 335] ✉ email+push: 고객관리(CRM): 마지막 확인 후 12개월이 곧 지나 30일 뒤 재확인이 필요합니다.
+  ⏱ 가상 시계 → Day 365
+  [Day 365] crm   일시정지(구성 정보 보존) (system) · reason=absolute_cap, idle_days=5, days_since_reconfirm=365, config_preserved=True
+  ⏱ 가상 시계 → Day 370
+  → 호출 crm__list_contacts [scheduled] ✗ 커넥터가 일시정지되어 예약 작업 실행을 건너뛰었습니다.
+  [Day 370] crm   예약 작업 실행 건너뜀 (system) · tool=list_contacts
+  [Day 370] ✉ email+push: 고객관리(CRM) 커넥터가 정지되어 예약 작업 실행을 건너뛰었습니다. 계속 사용하려면 대시보드에서 재확인하세요.
+  ⏱ 가상 시계 → Day 371
+  → 호출 crm__list_contacts [scheduled] ✗ 커넥터가 일시정지되어 예약 작업 실행을 건너뛰었습니다.
+  → 호출 crm__list_contacts [autonomous] ✗ 일시정지된 커넥터입니다.
+  [Day 371] crm   예약 작업 실행 건너뜀 (system) · tool=list_contacts
+  [Day 371] crm   에이전트 자율 호출 차단(알림 없음) (system) · tool=list_contacts
+
+================================================================
+ 장면 5. 에이전트가 재확인을 대신 승인하려는 시도 → 거부 및 이력 기록
+================================================================
+  → 호출 guard__reconfirm [autonomous] ✗ 재확인은 플랫폼 화면에서 이용자 본인만 할 수 있습니다. 에이전트는 재확인을 대신할 수 없습니다.
+  → 프로토콜 메서드 x-guard/reconfirm ✗ 재확인은 이용자 본인만 할 수 있습니다.
+  → 1회용 값 없이 재확인 요청 위조 → HTTP 403
+  [Day 371] crm   재확인 시도 거부 (agent) · tool=guard__reconfirm, source=autonomous
+  [Day 371] crm   재확인 시도 거부 (agent) · 프로토콜 메서드 시도
+  [Day 371] -     재확인 시도 거부 (unverified) · 유효하지 않은 재확인 요청(1회용 값 없음·재사용)
+
+================================================================
+ 장면 6. 무응답 지속 → 최종 고지 → 해제 → 발급기관 폐기 후 토큰 무효 확인
+================================================================
+  ⏱ 가상 시계 → Day 515
+  [Day 515] crm   최종 고지 발송 (system) 
+  [Day 515] ✉ email: 고객관리(CRM): 30일 뒤 연결이 해제되고 구성 정보가 삭제됩니다.
+  ⏱ 가상 시계 → Day 545
+  [Day 545] crm   연결 해제 · 구성 정보 삭제 (system) · 일시정지 후 추가 무응답
+  [Day 545] crm   연쇄 폐기 결과 (system) · revoked=True, vault_cleared=True, introspect_active=False, token_hint=rt_T_u…
+  · crm 상태=released, 구성 정보 삭제=True, 발급기관 조회 결과 active=False
+  → 호출 crm__list_contacts [user] ✗ 연결이 해제된 커넥터입니다. 다시 연결하려면 새로 동의해야 합니다.
+  · 에이전트가 보는 도구 목록(해제된 crm 도구는 사라짐): ['notes__list_notes', 'notes__create_notes']
+
+시연 완료.
